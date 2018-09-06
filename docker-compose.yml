@@ -1,0 +1,124 @@
+version: '2.4'
+x-logging:
+  &default-logging
+  options:
+    max-size: '12m'
+    max-file: '5'
+  driver: json-file
+
+services:
+  wordpress:
+    image: wordpress:4.9.8
+    container_name: wordpress_4.9.8
+    ports:
+      - 80:80
+    volumes:
+      - ./config/php.conf.uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
+      - ./wp-app:/var/www/html
+    environment:
+      WORDPRESS_DB_HOST: mariadb
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: root
+      WORDPRESS_DB_PASSWORD: password
+    depends_on:
+      - mariadb
+    networks:
+      - wordpress
+    restart: always
+    mem_limit: 750m
+    mem_reservation: 512m
+    logging: *default-logging
+
+  mariadb:
+    image: mariadb:10.3
+    container_name: mariadb
+    ports:
+      - 3306:3306
+    command: [
+        '--default_authentication_plugin=mysql_native_password',
+        '--character-set-server=utf8mb4',
+        '--collation-server=utf8mb4_unicode_ci'
+    ]
+    volumes:
+      - ./wp-data:/docker-entrypoint-initdb.d
+    environment:
+      MYSQL_DATABASE: wordpress
+      MYSQL_ROOT_PASSWORD: password
+    networks:
+      - wordpress
+    restart: always
+    mem_limit: 256m
+    mem_reservation: 256m
+    logging: *default-logging
+
+  prometheus:
+    image: prom/prometheus:v2.3.2
+    container_name: prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/data:/prometheus
+    command: [
+      '--config.file=/etc/prometheus/prometheus.yml',
+      '--storage.tsdb.path=/prometheus'
+    ]
+    ports:
+      - 9090:9090
+    depends_on:
+      - cadvisor
+    networks:
+      - monitoring
+    restart: always
+    mem_limit: 128m
+    mem_reservation: 128m
+    logging: *default-logging
+
+  node-exporter:
+    container_name: node-export
+    image: prom/node-exporter:v0.16.0
+    networks:
+      - monitoring
+    restart: always
+    mem_limit: 128m
+    mem_reservation: 128m
+    logging: *default-logging
+
+  cadvisor:
+    image: google/cadvisor:v0.28.5
+    container_name: cadvisor
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - monitoring
+    restart: always
+    mem_limit: 128m
+    mem_reservation: 128m
+    logging: *default-logging
+
+  grafana:
+    image: grafana/grafana:5.2.3
+    user: "104"
+    depends_on:
+      - prometheus
+    ports:
+      - 3000:3000
+    volumes:
+      - ./grafana/data:/var/lib/grafana
+      - ./grafana/provisioning/:/etc/grafana/provisioning/
+    env_file:
+      - ./grafana/config.monitoring
+    networks:
+      - monitoring
+    restart: always
+    mem_limit: 128m
+    mem_reservation: 128m
+    logging: *default-logging
+
+
+networks:
+  wordpress:
+      driver: bridge
+  monitoring:
+      driver: bridge
